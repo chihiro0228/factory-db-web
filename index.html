@@ -356,7 +356,7 @@
       <div class="settings-card-title">🤖 Google Gemini API キー</div>
       <div class="settings-card-desc">
         工場資料の撮影データをAIで自動読み取りするために必要です。<br>
-        <b>無料</b>で使えます（1日1,500回まで）。<br>
+        <b>無料</b>で使えます（1分50回・1日1,000回まで）。<br>
         <a href="https://aistudio.google.com" target="_blank" style="color:var(--primary)">aistudio.google.com</a> →「Get API key」で取得。
       </div>
       <div class="field">
@@ -682,7 +682,7 @@ function removeFile(index) {
 }
 
 async function runExtraction() {
-  const apiKey = localStorage.getItem('anthropic_api_key');
+  const apiKey = localStorage.getItem('gemini_api_key');
   if (!apiKey) {
     if (confirm('Gemini APIキーが未設定です。設定画面を開きますか？')) goSettings();
     return;
@@ -776,24 +776,37 @@ async function saveDocument() {
 
     // 2. 全画像をアップロードしてdocumentレコードを作成
     const docType = document.getElementById('fDocType').value;
-    const notes = val('fNotes');
+    const docNotes = val('fNotes');
     const baseTs = Date.now();
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
-      const ext = file.name.split('.').pop().toLowerCase() || 'jpg';
-      const storagePath = `${factoryId}/${baseTs}_${i}.${ext}`;
-      const { error: upErr } = await sb.storage.from('factory-images').upload(storagePath, file, { contentType: file.type });
-      if (upErr) throw upErr;
+    if (selectedFiles.length === 0) {
+      // 画像なし（手動入力）の場合もdocumentレコードを作成
       const { error: docErr } = await sb.from('factory_documents').insert({
         factory_id: factoryId,
         document_type: docType,
-        image_url: storagePath,
-        extracted_text: i === 0 && extractedData ? JSON.stringify(extractedData, null, 2) : null,
-        extracted_data: i === 0 ? (extractedData || null) : null,
-        notes
+        image_url: null,
+        extracted_text: extractedData ? JSON.stringify(extractedData, null, 2) : null,
+        extracted_data: extractedData || null,
+        notes: docNotes
       });
       if (docErr) throw docErr;
+    } else {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        const ext = file.name.split('.').pop().toLowerCase() || 'jpg';
+        const storagePath = `${factoryId}/${baseTs}_${i}.${ext}`;
+        const { error: upErr } = await sb.storage.from('factory-images').upload(storagePath, file, { contentType: file.type });
+        if (upErr) throw upErr;
+        const { error: docErr } = await sb.from('factory_documents').insert({
+          factory_id: factoryId,
+          document_type: docType,
+          image_url: storagePath,
+          extracted_text: i === 0 && extractedData ? JSON.stringify(extractedData, null, 2) : null,
+          extracted_data: i === 0 ? (extractedData || null) : null,
+          notes: docNotes
+        });
+        if (docErr) throw docErr;
+      }
     }
 
     hideLoading();
@@ -845,7 +858,7 @@ JSONのみ返答してください（説明・コードブロック不要）:
 // ---------- SETTINGS ----------
 
 function goSettings() {
-  const apiKey = localStorage.getItem('anthropic_api_key');
+  const apiKey = localStorage.getItem('gemini_api_key');
   if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
   showScreen('screenSettings');
 }
@@ -853,7 +866,7 @@ function goSettings() {
 function saveApiKey() {
   const k = document.getElementById('apiKeyInput').value.trim();
   if (!k) { alert('APIキーを入力してください'); return; }
-  localStorage.setItem('anthropic_api_key', k);
+  localStorage.setItem('gemini_api_key', k);
   const fb = document.getElementById('apiKeyFeedback');
   fb.textContent = '✓ 保存しました';
   setTimeout(() => fb.textContent = '', 2500);
@@ -900,7 +913,7 @@ async function toBase64(file) {
 
 // ---------- BOOT ----------
 (async () => {
-  const apiKey = localStorage.getItem('anthropic_api_key');
+  const apiKey = localStorage.getItem('gemini_api_key');
   if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
   const { data: { session } } = await sb.auth.getSession();
   if (session) await initApp();
