@@ -488,7 +488,7 @@ async function loadFactoriesForSelect() {
 }
 
 function normName(s) {
-  return (s || '').replace(/[株式会社|有限会社|合同会社|\(株\)|\(有\)]/g, '').replace(/[\s　]/g, '').toLowerCase();
+  return (s || '').replace(/(株式会社|有限会社|合同会社|\(株\)|\(有\)|株式|会社)/g, '').replace(/[\s　]/g, '').toLowerCase();
 }
 
 function autoMatchFactory(extractedName) {
@@ -687,6 +687,9 @@ function startUpload(factoryId) {
   if (factoryId) {
     document.getElementById('fFactorySelect').value = factoryId;
     document.getElementById('factorySelectWrap').style.display = 'none';
+    // 既存工場名を事前入力
+    const existing = factoriesList.find(f => f.id === factoryId);
+    if (existing) document.getElementById('fName').value = existing.name;
   } else {
     document.getElementById('fFactorySelect').value = 'new';
     document.getElementById('factorySelectWrap').style.display = 'block';
@@ -805,9 +808,8 @@ function goReviewPhase() {
 
 async function saveDocument() {
   const name = document.getElementById('fName').value.trim();
-  if (!name) { alert('工場名を入力してください'); return; }
-
   const selVal = uploadForFactoryId || document.getElementById('fFactorySelect').value;
+  if (!name && selVal === 'new') { alert('工場名を入力してください'); return; }
   setStep(3);
   showLoading('保存中...');
 
@@ -890,7 +892,7 @@ async function saveDocument() {
     hideLoading();
     alert('保存しました！');
     currentFactoryId = factoryId;
-    await Promise.all([loadFactories(''), loadFactoriesForSelect()]);
+    await Promise.all([loadFactories(document.getElementById('searchInput').value), loadFactoriesForSelect()]);
     await openDetail(factoryId);
 
   } catch (e) {
