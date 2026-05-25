@@ -1,0 +1,19 @@
+{
+  "name": "工場データベース",
+  "short_name": "工場DB",
+  "description": "TWO R&D 工場データベース",
+  "start_url": "/factory-db-web/",
+  "scope": "/factory-db-web/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#2563eb",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

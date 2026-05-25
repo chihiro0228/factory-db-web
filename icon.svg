@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="90" fill="#2563eb"/>
+  <!-- Chimneys -->
+  <rect x="108" y="148" width="56" height="100" fill="white" rx="6"/>
+  <rect x="200" y="178" width="44" height="70" fill="white" rx="6"/>
+  <!-- Main building -->
+  <rect x="76" y="228" width="360" height="196" fill="white" rx="8"/>
+  <!-- Windows row -->
+  <rect x="108" y="268" width="52" height="52" fill="#2563eb" rx="6"/>
+  <rect x="202" y="268" width="52" height="52" fill="#2563eb" rx="6"/>
+  <rect x="296" y="268" width="52" height="52" fill="#2563eb" rx="6"/>
+  <!-- Door -->
+  <rect x="208" y="344" width="84" height="80" fill="#2563eb" rx="6"/>
+</svg>
