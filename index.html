@@ -686,7 +686,9 @@ async function saveDocument() {
   try {
     // 1. Create or use factory
     let factoryId;
-    const fPayload = {
+
+    // 新規作成用: 全フィールドを含む
+    const fPayloadNew = {
       name,
       address: val('fAddress'), phone: val('fPhone'), email: val('fEmail'),
       contact: val('fContact'),
@@ -697,15 +699,29 @@ async function saveDocument() {
       updated_at: new Date().toISOString()
     };
 
+    // 既存更新用: 値がある項目のみ（nullで既存データを上書きしない）
+    const fPayloadUpdate = { name, updated_at: new Date().toISOString() };
+    if (val('fAddress')) fPayloadUpdate.address = val('fAddress');
+    if (val('fPhone')) fPayloadUpdate.phone = val('fPhone');
+    if (val('fEmail')) fPayloadUpdate.email = val('fEmail');
+    if (val('fContact')) fPayloadUpdate.contact = val('fContact');
+    if (val('fMinLot')) fPayloadUpdate.min_lot = val('fMinLot');
+    if (val('fLeadTime')) fPayloadUpdate.lead_time = val('fLeadTime');
+    if (val('fNotes')) fPayloadUpdate.notes = val('fNotes');
+    const cats = parseTags(document.getElementById('fCategories').value);
+    if (cats.length) fPayloadUpdate.product_categories = cats;
+    const certs = parseTags(document.getElementById('fCertifications').value);
+    if (certs.length) fPayloadUpdate.certifications = certs;
+
     if (selVal === 'new') {
-      fPayload.id = 'FAC-' + Date.now();
-      fPayload.status = '候補';
-      const { data, error } = await sb.from('factories').insert(fPayload).select().single();
+      fPayloadNew.id = 'FAC-' + Date.now();
+      fPayloadNew.status = '候補';
+      const { data, error } = await sb.from('factories').insert(fPayloadNew).select().single();
       if (error) throw error;
       factoryId = data.id;
     } else {
       factoryId = selVal;
-      await sb.from('factories').update(fPayload).eq('id', factoryId);
+      await sb.from('factories').update(fPayloadUpdate).eq('id', factoryId);
     }
 
     // 2. Upload image
