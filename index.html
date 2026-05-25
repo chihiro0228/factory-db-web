@@ -330,11 +330,25 @@
       <!-- Factory linkage -->
       <div class="extract-card" id="factorySelectWrap">
         <div style="font-size:14px;font-weight:700;margin-bottom:12px;">🏭 工場の紐づけ</div>
-        <div class="field">
-          <label>既存工場に追加 / 新規作成</label>
-          <select id="fFactorySelect">
-            <option value="new">＋ 新規工場として登録</option>
-          </select>
+        <div id="autoMatchBanner" class="hidden" style="background:#e8f5e9;border:1px solid #81c784;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.6;">
+          <div id="autoMatchText"></div>
+          <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" style="padding:4px 14px;font-size:13px;" onclick="confirmAutoMatch()">この工場に追加</button>
+            <button class="btn btn-secondary" style="padding:4px 14px;font-size:13px;" onclick="rejectAutoMatch()">新規工場として登録</button>
+            <button class="btn btn-secondary" style="padding:4px 14px;font-size:13px;" onclick="showFactoryDropdown()">別の工場を選ぶ</button>
+          </div>
+        </div>
+        <div id="autoMatchNewBanner" class="hidden" style="background:#f5f5f5;border:1px solid #ddd;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;color:var(--text-sub);">
+          新規工場として登録します。
+          <button class="btn btn-secondary" style="padding:4px 14px;font-size:13px;margin-top:6px;display:block;" onclick="showFactoryDropdown()">既存工場に追加する</button>
+        </div>
+        <div id="factoryDropdownWrap" class="hidden">
+          <div class="field">
+            <label>工場を選択</label>
+            <select id="fFactorySelect">
+              <option value="new">＋ 新規工場として登録</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -383,6 +397,8 @@ let currentFactoryId = null;
 let uploadForFactoryId = null;
 let selectedFiles = [];
 let extractedData = null;
+let factoriesList = [];
+let autoMatchedId = null;
 let searchTimer = null;
 
 // ---------- AUTH ----------
@@ -459,15 +475,64 @@ function debounceSearch() {
 
 async function loadFactoriesForSelect() {
   const { data } = await sb.from('factories').select('id,name').order('name');
+  factoriesList = data || [];
   const sel = document.getElementById('fFactorySelect');
   const prev = sel.value;
   sel.innerHTML = '<option value="new">＋ 新規工場として登録</option>';
-  (data || []).forEach(f => {
+  factoriesList.forEach(f => {
     const o = document.createElement('option');
     o.value = f.id; o.textContent = f.name;
     sel.appendChild(o);
   });
   if (prev) sel.value = prev;
+}
+
+function normName(s) {
+  return (s || '').replace(/[株式会社|有限会社|合同会社|\(株\)|\(有\)]/g, '').replace(/[\s　]/g, '').toLowerCase();
+}
+
+function autoMatchFactory(extractedName) {
+  document.getElementById('autoMatchBanner').classList.add('hidden');
+  document.getElementById('autoMatchNewBanner').classList.add('hidden');
+  document.getElementById('factoryDropdownWrap').classList.add('hidden');
+  autoMatchedId = null;
+  if (!extractedName) { document.getElementById('autoMatchNewBanner').classList.remove('hidden'); return; }
+  const norm = normName(extractedName);
+  const match = factoriesList.find(f => {
+    const fn = normName(f.name);
+    return fn === norm || fn.includes(norm) || norm.includes(fn);
+  });
+  if (match) {
+    autoMatchedId = match.id;
+    document.getElementById('autoMatchText').textContent = `「${match.name}」が見つかりました。この工場に資料を追加しますか？`;
+    document.getElementById('autoMatchBanner').classList.remove('hidden');
+    document.getElementById('fFactorySelect').value = match.id;
+  } else {
+    document.getElementById('autoMatchNewBanner').classList.remove('hidden');
+  }
+}
+
+function confirmAutoMatch() {
+  document.getElementById('fFactorySelect').value = autoMatchedId;
+  document.getElementById('autoMatchBanner').classList.add('hidden');
+  document.getElementById('autoMatchNewBanner').classList.remove('hidden');
+  document.getElementById('autoMatchNewBanner').innerHTML =
+    `✓ 「${factoriesList.find(f=>f.id===autoMatchedId)?.name}」に追加します。<button class="btn btn-secondary" style="padding:4px 14px;font-size:13px;margin-top:6px;display:block;" onclick="showFactoryDropdown()">変更する</button>`;
+}
+
+function rejectAutoMatch() {
+  document.getElementById('fFactorySelect').value = 'new';
+  autoMatchedId = null;
+  document.getElementById('autoMatchBanner').classList.add('hidden');
+  document.getElementById('autoMatchNewBanner').classList.remove('hidden');
+  document.getElementById('autoMatchNewBanner').innerHTML =
+    `新規工場として登録します。<button class="btn btn-secondary" style="padding:4px 14px;font-size:13px;margin-top:6px;display:block;" onclick="showFactoryDropdown()">既存工場に追加する</button>`;
+}
+
+function showFactoryDropdown() {
+  document.getElementById('autoMatchBanner').classList.add('hidden');
+  document.getElementById('autoMatchNewBanner').classList.add('hidden');
+  document.getElementById('factoryDropdownWrap').classList.remove('hidden');
 }
 
 // ---------- DETAIL ----------
@@ -615,11 +680,19 @@ function startUpload(factoryId) {
   // Clear form
   ['fName','fAddress','fPhone','fEmail','fContact','fCategories','fMinLot','fLeadTime','fCertifications','fNotes'].forEach(id => document.getElementById(id).value = '');
   // Factory select
+  autoMatchedId = null;
+  document.getElementById('autoMatchBanner').classList.add('hidden');
+  document.getElementById('autoMatchNewBanner').classList.add('hidden');
+  document.getElementById('factoryDropdownWrap').classList.add('hidden');
   if (factoryId) {
     document.getElementById('fFactorySelect').value = factoryId;
     document.getElementById('factorySelectWrap').style.display = 'none';
   } else {
+    document.getElementById('fFactorySelect').value = 'new';
     document.getElementById('factorySelectWrap').style.display = 'block';
+    document.getElementById('autoMatchNewBanner').classList.remove('hidden');
+    document.getElementById('autoMatchNewBanner').innerHTML =
+      `新規工場として登録します。<button class="btn btn-secondary" style="padding:4px 14px;font-size:13px;margin-top:6px;display:block;" onclick="showFactoryDropdown()">既存工場に追加する</button>`;
   }
   setStep(1);
   showScreen('screenUpload');
@@ -707,16 +780,21 @@ async function runExtraction() {
     document.getElementById('fCertifications').value = (result.certifications || []).join(', ');
     document.getElementById('fNotes').value = result.notes || '';
     hideLoading();
+    autoMatchFactory(result.factory_name);
     goReviewPhase();
   } catch (e) {
     hideLoading();
     console.error(e);
     alert('AI読み取りに失敗しました。手動で入力してください。\n\nエラー: ' + e.message);
+    autoMatchFactory('');
     goReviewPhase();
   }
 }
 
-function skipExtraction() { goReviewPhase(); }
+function skipExtraction() {
+  autoMatchFactory(document.getElementById('fName').value.trim());
+  goReviewPhase();
+}
 
 function goReviewPhase() {
   document.getElementById('phaseCamera').classList.add('hidden');
