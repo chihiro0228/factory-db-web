@@ -269,16 +269,20 @@
       <div class="camera-area">
         <div class="camera-placeholder" id="cameraPlaceholder">
           <div class="camera-placeholder-icon">📷</div>
-          <div class="camera-placeholder-text">工場の資料・仕様書を撮影してください</div>
+          <div class="camera-placeholder-text">工場の資料・仕様書を撮影してください<br><span style="font-size:11px">複数枚まとめて選択できます</span></div>
         </div>
-        <img class="camera-preview hidden" id="cameraPreview" alt="プレビュー">
-        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="onFileSelected(event)">
+        <div id="previewGrid" class="hidden" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px;"></div>
+        <div id="previewCount" class="hidden" style="font-size:13px;color:var(--primary);font-weight:600;text-align:center;margin-bottom:12px;"></div>
+        <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="onFileSelected(event)">
         <button class="btn btn-secondary btn-block btn-lg" onclick="document.getElementById('fileInput').click()">
           📷 カメラで撮影 / ライブラリから選択
         </button>
+        <button class="btn btn-secondary btn-block hidden" id="btnAddMore" style="margin-top:8px" onclick="document.getElementById('fileInput').click()">
+          ＋ さらに追加する
+        </button>
       </div>
       <button class="btn btn-primary btn-block btn-lg hidden" id="btnExtract" onclick="runExtraction()">
-        🔍 AIでデータを読み取る
+        🔍 AIでデータを読み取る（1枚目から抽出）
       </button>
       <div style="height:10px"></div>
       <button class="btn btn-secondary btn-block" onclick="skipExtraction()">
@@ -373,7 +377,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 let currentFactoryId = null;
 let uploadForFactoryId = null;
-let selectedFile = null;
+let selectedFiles = [];
 let extractedData = null;
 let searchTimer = null;
 
@@ -592,12 +596,15 @@ async function saveEditFactory() {
 
 function startUpload(factoryId) {
   uploadForFactoryId = factoryId;
-  selectedFile = null;
+  selectedFiles = [];
   extractedData = null;
   // Reset
-  document.getElementById('cameraPreview').classList.add('hidden');
+  document.getElementById('previewGrid').classList.add('hidden');
+  document.getElementById('previewGrid').innerHTML = '';
+  document.getElementById('previewCount').classList.add('hidden');
   document.getElementById('cameraPlaceholder').style.display = 'flex';
   document.getElementById('btnExtract').classList.add('hidden');
+  document.getElementById('btnAddMore').classList.add('hidden');
   document.getElementById('fileInput').value = '';
   document.getElementById('phaseCamera').classList.remove('hidden');
   document.getElementById('phaseReview').classList.add('hidden');
@@ -620,18 +627,54 @@ function cancelUpload() {
 }
 
 function onFileSelected(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  selectedFile = file;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const img = document.getElementById('cameraPreview');
-    img.src = ev.target.result;
-    img.classList.remove('hidden');
-    document.getElementById('cameraPlaceholder').style.display = 'none';
-    document.getElementById('btnExtract').classList.remove('hidden');
-  };
-  reader.readAsDataURL(file);
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  // 追加（既存に重複しないもののみ）
+  files.forEach(f => {
+    if (!selectedFiles.find(x => x.name === f.name && x.size === f.size)) {
+      selectedFiles.push(f);
+    }
+  });
+  document.getElementById('fileInput').value = '';
+  renderPreviews();
+}
+
+function renderPreviews() {
+  const grid = document.getElementById('previewGrid');
+  const count = document.getElementById('previewCount');
+  grid.innerHTML = '';
+  selectedFiles.forEach((file, i) => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;border-radius:8px;overflow:hidden;aspect-ratio:1;background:var(--bg)';
+      wrap.innerHTML = `
+        <img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover">
+        <button onclick="removeFile(${i})" style="position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:11px;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+      `;
+      grid.appendChild(wrap);
+    };
+    reader.readAsDataURL(file);
+  });
+  grid.classList.remove('hidden');
+  document.getElementById('cameraPlaceholder').style.display = 'none';
+  count.textContent = `${selectedFiles.length}枚選択中`;
+  count.classList.remove('hidden');
+  document.getElementById('btnExtract').classList.remove('hidden');
+  document.getElementById('btnAddMore').classList.remove('hidden');
+}
+
+function removeFile(index) {
+  selectedFiles.splice(index, 1);
+  if (selectedFiles.length === 0) {
+    document.getElementById('previewGrid').classList.add('hidden');
+    document.getElementById('previewCount').classList.add('hidden');
+    document.getElementById('cameraPlaceholder').style.display = 'flex';
+    document.getElementById('btnExtract').classList.add('hidden');
+    document.getElementById('btnAddMore').classList.add('hidden');
+  } else {
+    renderPreviews();
+  }
 }
 
 async function runExtraction() {
@@ -640,10 +683,13 @@ async function runExtraction() {
     if (confirm('Anthropic APIキーが未設定です。設定画面を開きますか？')) goSettings();
     return;
   }
+  if (!selectedFiles.length) { alert('画像を選択してください'); return; }
   showLoading('AIが資料を読み取り中...\nしばらくお待ちください');
   try {
-    const b64 = await toBase64(selectedFile);
-    const mt = ['image/jpeg','image/png','image/webp','image/gif'].includes(selectedFile.type) ? selectedFile.type : 'image/jpeg';
+    // 1枚目からデータ抽出
+    const firstFile = selectedFiles[0];
+    const b64 = await toBase64(firstFile);
+    const mt = ['image/jpeg','image/png','image/webp','image/gif'].includes(firstFile.type) ? firstFile.type : 'image/jpeg';
     const result = await claudeExtract(b64, mt, apiKey);
     extractedData = result;
     document.getElementById('fName').value = result.factory_name || '';
@@ -724,25 +770,27 @@ async function saveDocument() {
       await sb.from('factories').update(fPayloadUpdate).eq('id', factoryId);
     }
 
-    // 2. Upload image
-    let storagePath = null;
-    if (selectedFile) {
-      const ext = selectedFile.name.split('.').pop().toLowerCase() || 'jpg';
-      storagePath = `${factoryId}/${Date.now()}.${ext}`;
-      const { error: upErr } = await sb.storage.from('factory-images').upload(storagePath, selectedFile, { contentType: selectedFile.type });
-      if (upErr) throw upErr;
-    }
+    // 2. 全画像をアップロードしてdocumentレコードを作成
+    const docType = document.getElementById('fDocType').value;
+    const notes = val('fNotes');
+    const baseTs = Date.now();
 
-    // 3. Save document record
-    const { error: docErr } = await sb.from('factory_documents').insert({
-      factory_id: factoryId,
-      document_type: document.getElementById('fDocType').value,
-      image_url: storagePath,
-      extracted_text: extractedData ? JSON.stringify(extractedData, null, 2) : null,
-      extracted_data: extractedData || null,
-      notes: val('fNotes')
-    });
-    if (docErr) throw docErr;
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      const ext = file.name.split('.').pop().toLowerCase() || 'jpg';
+      const storagePath = `${factoryId}/${baseTs}_${i}.${ext}`;
+      const { error: upErr } = await sb.storage.from('factory-images').upload(storagePath, file, { contentType: file.type });
+      if (upErr) throw upErr;
+      const { error: docErr } = await sb.from('factory_documents').insert({
+        factory_id: factoryId,
+        document_type: docType,
+        image_url: storagePath,
+        extracted_text: i === 0 && extractedData ? JSON.stringify(extractedData, null, 2) : null,
+        extracted_data: i === 0 ? (extractedData || null) : null,
+        notes
+      });
+      if (docErr) throw docErr;
+    }
 
     hideLoading();
     alert('保存しました！');
