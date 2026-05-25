@@ -991,6 +991,12 @@ async function toBase64(file) {
 
 // ---------- BOOT ----------
 (async () => {
+  // 旧キー名から移行
+  const oldKey = localStorage.getItem('anthropic_api_key');
+  if (oldKey && !localStorage.getItem('gemini_api_key')) {
+    localStorage.setItem('gemini_api_key', oldKey);
+    localStorage.removeItem('anthropic_api_key');
+  }
   const apiKey = localStorage.getItem('gemini_api_key');
   if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
   const { data: { session } } = await sb.auth.getSession();
