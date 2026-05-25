@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>工場データベース</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb; --primary-dark: #1d4ed8;
+      --surface: #ffffff; --bg: #f1f5f9;
+      --border: #e2e8f0; --text: #1e293b; --text-sub: #64748b;
+      --danger: #ef4444; --success: #22c55e;
+      --r: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .hidden { display: none !important; }
+
+    /* Spinner */
+    .spinner { width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Loading overlay */
+    .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.92); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 50; gap: 16px; }
+    .loading-overlay .spinner { width: 40px; height: 40px; border-width: 4px; }
+    .loading-text { font-size: 15px; color: var(--text-sub); font-weight: 500; }
+
+    /* Fields */
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: var(--text-sub); margin-bottom: 5px; }
+    .field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; outline: none; font-family: inherit; background: var(--surface); color: var(--text); }
+    .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--primary); }
+    .field textarea { height: 72px; resize: vertical; }
+    .field-hint { font-size: 11px; color: var(--text-sub); margin-top: 3px; }
+    .error-msg { font-size: 13px; color: var(--danger); margin-bottom: 12px; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; transition: opacity 0.15s; white-space: nowrap; }
+    .btn:active { opacity: 0.75; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-secondary { background: var(--border); color: var(--text); }
+    .btn-block { width: 100%; }
+    .btn-lg { padding: 14px 24px; font-size: 16px; border-radius: 12px; }
+
+    /* App shell */
+    .app-screen { display: flex; flex-direction: column; min-height: 100vh; }
+    .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 16px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; flex-shrink: 0; }
+    .header-title { font-size: 17px; font-weight: 700; }
+    .header-left { display: flex; align-items: center; gap: 4px; }
+    .header-right { display: flex; gap: 4px; }
+    .icon-btn { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border: none; background: none; cursor: pointer; border-radius: 8px; font-size: 20px; }
+    .icon-btn:active { background: var(--bg); }
+    .back-btn { display: flex; align-items: center; gap: 4px; border: none; background: none; cursor: pointer; font-size: 15px; color: var(--primary); font-weight: 600; font-family: inherit; padding: 4px 0; }
+    .screen-body { flex: 1; padding: 16px; padding-bottom: 88px; }
+
+    /* Login */
+    .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .login-card { background: var(--surface); border-radius: var(--r); padding: 32px 24px; width: 100%; max-width: 360px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .login-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .login-sub { font-size: 14px; color: var(--text-sub); margin-bottom: 28px; }
+
+    /* Search */
+    .search-wrap { margin-bottom: 14px; }
+    .search-wrap input { width: 100%; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 15px; outline: none; background: var(--surface); font-family: inherit; }
+    .search-wrap input:focus { border-color: var(--primary); }
+
+    /* Factory cards */
+    .factory-card { background: var(--surface); border-radius: var(--r); padding: 16px; margin-bottom: 10px; cursor: pointer; border: 1.5px solid transparent; active-color: var(--primary); }
+    .factory-card:active { border-color: var(--primary); background: #f8faff; }
+    .card-row1 { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+    .card-name { font-size: 16px; font-weight: 700; flex: 1; margin-right: 8px; }
+    .badge { font-size: 11px; padding: 3px 9px; border-radius: 20px; font-weight: 600; flex-shrink: 0; }
+    .badge-active   { background: #dcfce7; color: #15803d; }
+    .badge-candidate{ background: #dbeafe; color: #1d4ed8; }
+    .badge-paused   { background: #f1f5f9; color: #64748b; }
+    .card-sub { font-size: 13px; color: var(--text-sub); margin-bottom: 3px; }
+    .tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .tag { font-size: 11px; padding: 2px 8px; background: #f1f5f9; border-radius: 4px; color: var(--text-sub); }
+    .tag-blue { background: #eff6ff; color: #1d4ed8; }
+
+    /* Empty state */
+    .empty { text-align: center; padding: 48px 16px; color: var(--text-sub); }
+    .empty-icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-sub { font-size: 13px; margin-top: 4px; color: #94a3b8; }
+
+    /* FAB */
+    .fab { position: fixed; bottom: 24px; right: 20px; width: 62px; height: 62px; border-radius: 31px; background: var(--primary); color: #fff; border: none; font-size: 28px; cursor: pointer; box-shadow: 0 4px 18px rgba(37,99,235,0.45); display: flex; align-items: center; justify-content: center; z-index: 20; }
+    .fab:active { opacity: 0.8; }
+
+    /* Detail */
+    .detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .detail-name { font-size: 22px; font-weight: 700; flex: 1; }
+    .info-card { background: var(--surface); border-radius: var(--r); padding: 16px; margin-bottom: 14px; }
+    .info-row { display: flex; padding: 8px 0; border-bottom: 1px solid var(--bg); font-size: 14px; }
+    .info-row:last-child { border-bottom: none; }
+    .info-label { color: var(--text-sub); width: 90px; flex-shrink: 0; font-weight: 500; }
+    .info-value { flex: 1; word-break: break-all; }
+    .section-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+
+    /* Doc grid */
+    .doc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .doc-card { background: var(--surface); border-radius: 10px; overflow: hidden; cursor: pointer; }
+    .doc-card:active { opacity: 0.8; }
+    .doc-thumb { width: 100%; height: 130px; object-fit: cover; background: var(--bg); display: block; }
+    .doc-placeholder { width: 100%; height: 130px; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 36px; }
+    .doc-caption { padding: 7px 10px; font-size: 12px; color: var(--text-sub); }
+
+    /* Upload steps */
+    .steps { display: flex; justify-content: center; align-items: center; margin-bottom: 24px; }
+    .step { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .step-num { width: 26px; height: 26px; border-radius: 13px; background: var(--border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--text-sub); }
+    .step-label { font-size: 11px; color: var(--text-sub); }
+    .step.active .step-num { background: var(--primary); color: #fff; }
+    .step.active .step-label { color: var(--primary); font-weight: 600; }
+    .step.done .step-num { background: var(--success); color: #fff; }
+    .step-line { width: 32px; height: 2px; background: var(--border); margin: 0 6px; margin-bottom: 18px; }
+
+    /* Camera area */
+    .camera-area { background: var(--surface); border-radius: var(--r); padding: 20px; margin-bottom: 14px; text-align: center; }
+    .camera-placeholder { width: 100%; height: 180px; background: var(--bg); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed var(--border); margin-bottom: 16px; }
+    .camera-placeholder-icon { font-size: 44px; margin-bottom: 8px; }
+    .camera-placeholder-text { font-size: 13px; color: var(--text-sub); }
+    .camera-preview { width: 100%; max-height: 300px; object-fit: contain; border-radius: 10px; margin-bottom: 16px; }
+    .extract-card { background: var(--surface); border-radius: var(--r); padding: 16px; margin-bottom: 14px; }
+    .extract-title { font-size: 14px; font-weight: 700; color: var(--primary); margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+
+    /* Image viewer */
+    .img-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.96); z-index: 200; display: flex; flex-direction: column; }
+    .img-modal-bar { padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .img-modal-title { color: #fff; font-size: 14px; }
+    .img-modal-close { color: #fff; background: none; border: none; font-size: 26px; cursor: pointer; line-height: 1; }
+    .img-modal img { flex: 1; object-fit: contain; width: 100%; min-height: 0; }
+
+    /* Edit modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: flex; align-items: flex-end; }
+    .modal-sheet { background: var(--surface); border-radius: 16px 16px 0 0; padding: 20px 16px 32px; width: 100%; max-height: 90vh; overflow-y: auto; }
+    .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 20px; }
+    .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 20px; }
+
+    /* Settings */
+    .settings-card { background: var(--surface); border-radius: var(--r); padding: 16px; margin-bottom: 14px; }
+    .settings-card-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .settings-card-desc { font-size: 13px; color: var(--text-sub); margin-bottom: 16px; }
+    .save-feedback { font-size: 13px; color: var(--success); margin-top: 8px; height: 18px; }
+  </style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div class="loading-overlay hidden" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">処理中...</div>
+</div>
+
+<!-- Image Viewer -->
+<div class="img-modal hidden" id="imgModal">
+  <div class="img-modal-bar">
+    <span class="img-modal-title" id="imgModalTitle"></span>
+    <button class="img-modal-close" onclick="closeImgModal()">✕</button>
+  </div>
+  <img id="imgModalSrc" src="" alt="">
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay hidden" id="editModal">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">工場情報を編集</div>
+    <input type="hidden" id="editId">
+    <div class="field"><label>工場名 *</label><input type="text" id="eName"></div>
+    <div class="field"><label>住所</label><input type="text" id="eAddress"></div>
+    <div class="field"><label>電話番号</label><input type="text" id="ePhone"></div>
+    <div class="field"><label>メールアドレス</label><input type="email" id="eEmail"></div>
+    <div class="field"><label>担当者名</label><input type="text" id="eContact"></div>
+    <div class="field"><label>製造カテゴリ</label><input type="text" id="eCategories" placeholder="例: 冷凍, 常温（カンマ区切り）"></div>
+    <div class="field"><label>最小ロット</label><input type="text" id="eMinLot"></div>
+    <div class="field"><label>リードタイム</label><input type="text" id="eLeadTime"></div>
+    <div class="field"><label>認証・資格</label><input type="text" id="eCertifications" placeholder="例: FSSC22000, 有機JAS（カンマ区切り）"></div>
+    <div class="field"><label>ステータス</label>
+      <select id="eStatus">
+        <option value="候補">候補</option>
+        <option value="取引中">取引中</option>
+        <option value="休止">休止</option>
+        <option value="終了">終了</option>
+      </select>
+    </div>
+    <div class="field"><label>備考</label><textarea id="eNotes"></textarea></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeEditModal()">キャンセル</button>
+      <button class="btn btn-primary" style="flex:2" onclick="saveEditFactory()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCREEN: Login ===== -->
+<div id="screenLogin">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-title">🏭 工場DB</div>
+      <div class="login-sub">TWO R&amp;D 工場データベース</div>
+      <div class="error-msg hidden" id="loginError"></div>
+      <div class="field">
+        <label>メールアドレス</label>
+        <input type="email" id="loginEmail" value="randd_2foods@two2.jp" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>パスワード</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" onkeyup="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="btn btn-primary btn-block btn-lg" onclick="doLogin()">ログイン</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCREEN: Factory List ===== -->
+<div id="screenList" class="app-screen hidden">
+  <div class="header">
+    <div class="header-title">🏭 工場データベース</div>
+    <div class="header-right">
+      <button class="icon-btn" onclick="goSettings()" title="設定">⚙️</button>
+      <button class="icon-btn" onclick="doLogout()" title="ログアウト">🚪</button>
+    </div>
+  </div>
+  <div class="screen-body">
+    <div class="search-wrap">
+      <input type="search" id="searchInput" placeholder="工場名・住所・品目で検索..." oninput="debounceSearch()">
+    </div>
+    <div id="factoryList">
+      <div class="empty"><div class="empty-icon">🏭</div>読み込み中...</div>
+    </div>
+  </div>
+  <button class="fab" onclick="startUpload(null)" title="撮影して登録">📷</button>
+</div>
+
+<!-- ===== SCREEN: Factory Detail ===== -->
+<div id="screenDetail" class="app-screen hidden">
+  <div class="header">
+    <button class="back-btn" onclick="showScreen('screenList')">← 一覧</button>
+    <div class="header-right">
+      <button class="icon-btn" onclick="openEditModal()" title="編集">✏️</button>
+    </div>
+  </div>
+  <div class="screen-body" id="detailBody"></div>
+  <button class="fab" onclick="startUpload(currentFactoryId)" title="資料を撮影追加">📷</button>
+</div>
+
+<!-- ===== SCREEN: Upload ===== -->
+<div id="screenUpload" class="app-screen hidden">
+  <div class="header">
+    <button class="back-btn" onclick="cancelUpload()">← 戻る</button>
+    <div class="header-title">資料を登録</div>
+  </div>
+  <div class="screen-body">
+
+    <!-- Step indicator -->
+    <div class="steps">
+      <div class="step" id="stepA"><div class="step-num">1</div><div class="step-label">撮影</div></div>
+      <div class="step-line"></div>
+      <div class="step" id="stepB"><div class="step-num">2</div><div class="step-label">確認</div></div>
+      <div class="step-line"></div>
+      <div class="step" id="stepC"><div class="step-num">3</div><div class="step-label">保存</div></div>
+    </div>
+
+    <!-- Phase 1: Camera -->
+    <div id="phaseCamera">
+      <div class="camera-area">
+        <div class="camera-placeholder" id="cameraPlaceholder">
+          <div class="camera-placeholder-icon">📷</div>
+          <div class="camera-placeholder-text">工場の資料・仕様書を撮影してください</div>
+        </div>
+        <img class="camera-preview hidden" id="cameraPreview" alt="プレビュー">
+        <input type="file" id="fileInput" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(event)">
+        <button class="btn btn-secondary btn-block btn-lg" onclick="document.getElementById('fileInput').click()">
+          📷 カメラで撮影 / ライブラリから選択
+        </button>
+      </div>
+      <button class="btn btn-primary btn-block btn-lg hidden" id="btnExtract" onclick="runExtraction()">
+        🔍 AIでデータを読み取る
+      </button>
+      <div style="height:10px"></div>
+      <button class="btn btn-secondary btn-block" onclick="skipExtraction()">
+        手動で入力する（AI不使用）
+      </button>
+    </div>
+
+    <!-- Phase 2: Review -->
+    <div id="phaseReview" class="hidden">
+      <div class="extract-card">
+        <div class="extract-title">📋 AI抽出結果（修正できます）</div>
+        <div class="field"><label>工場名 *</label><input type="text" id="fName" placeholder="例：○○食品株式会社"></div>
+        <div class="field"><label>住所</label><input type="text" id="fAddress"></div>
+        <div class="field"><label>電話番号</label><input type="tel" id="fPhone"></div>
+        <div class="field"><label>メールアドレス</label><input type="email" id="fEmail"></div>
+        <div class="field"><label>担当者名</label><input type="text" id="fContact"></div>
+        <div class="field">
+          <label>製造カテゴリ</label>
+          <input type="text" id="fCategories" placeholder="例：冷凍, 常温">
+          <div class="field-hint">カンマ区切りで複数入力</div>
+        </div>
+        <div class="field"><label>最小ロット</label><input type="text" id="fMinLot" placeholder="例：100kg"></div>
+        <div class="field"><label>リードタイム</label><input type="text" id="fLeadTime" placeholder="例：2週間"></div>
+        <div class="field">
+          <label>認証・資格</label>
+          <input type="text" id="fCertifications" placeholder="例：FSSC22000, 有機JAS">
+          <div class="field-hint">カンマ区切りで複数入力</div>
+        </div>
+        <div class="field">
+          <label>資料の種類</label>
+          <select id="fDocType">
+            <option value="仕様書">仕様書</option>
+            <option value="規格書">規格書</option>
+            <option value="工場概要">工場概要</option>
+            <option value="パンフレット">パンフレット</option>
+            <option value="その他">その他</option>
+          </select>
+        </div>
+        <div class="field"><label>備考・メモ</label><textarea id="fNotes" placeholder="その他の情報"></textarea></div>
+      </div>
+
+      <!-- Factory linkage -->
+      <div class="extract-card" id="factorySelectWrap">
+        <div style="font-size:14px;font-weight:700;margin-bottom:12px;">🏭 工場の紐づけ</div>
+        <div class="field">
+          <label>既存工場に追加 / 新規作成</label>
+          <select id="fFactorySelect">
+            <option value="new">＋ 新規工場として登録</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-block btn-lg" onclick="saveDocument()">💾 保存する</button>
+      <div style="height:16px"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== SCREEN: Settings ===== -->
+<div id="screenSettings" class="app-screen hidden">
+  <div class="header">
+    <button class="back-btn" onclick="showScreen('screenList')">← 戻る</button>
+    <div class="header-title">設定</div>
+  </div>
+  <div class="screen-body">
+    <div class="settings-card">
+      <div class="settings-card-title">🤖 Anthropic API キー</div>
+      <div class="settings-card-desc">
+        工場資料の撮影データをAIで自動読み取りするために必要です。<br>
+        Anthropic Console（console.anthropic.com）で取得してください。
+      </div>
+      <div class="field">
+        <label>API キー</label>
+        <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+      </div>
+      <button class="btn btn-primary btn-block" onclick="saveApiKey()">保存</button>
+      <div class="save-feedback" id="apiKeyFeedback"></div>
+    </div>
+    <div class="settings-card">
+      <div class="settings-card-title">ログイン情報</div>
+      <div id="settingsUserInfo" style="font-size:14px;color:var(--text-sub);margin-bottom:12px;"></div>
+      <button class="btn btn-secondary btn-block" onclick="doLogout()">ログアウト</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://pbuifhjjugfgbygjefge.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBidWlmaGpqdWdmZ2J5Z2plZmdlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI3OTM0ODcsImV4cCI6MjA4ODM2OTQ4N30.EmZzLkFpLvUICwVURnPwYb8CWmsV8HzuVX9kZtdtZJQ';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+let currentFactoryId = null;
+let uploadForFactoryId = null;
+let selectedFile = null;
+let extractedData = null;
+let searchTimer = null;
+
+// ---------- AUTH ----------
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pw = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.classList.add('hidden');
+  showLoading('ログイン中...');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+  hideLoading();
+  if (error) {
+    errEl.textContent = 'ログインに失敗しました: ' + error.message;
+    errEl.classList.remove('hidden');
+    return;
+  }
+  await initApp();
+}
+
+async function doLogout() {
+  await sb.auth.signOut();
+  showScreen('screenLogin');
+}
+
+// ---------- INIT ----------
+
+async function initApp() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (user) document.getElementById('settingsUserInfo').textContent = user.email;
+  showLoading('読み込み中...');
+  await Promise.all([loadFactories(''), loadFactoriesForSelect()]);
+  hideLoading();
+  showScreen('screenList');
+}
+
+// ---------- FACTORY LIST ----------
+
+async function loadFactories(q) {
+  let query = sb.from('factories').select('*').order('updated_at', { ascending: false });
+  if (q) query = query.or(`name.ilike.%${q}%,address.ilike.%${q}%,contact.ilike.%${q}%,notes.ilike.%${q}%`);
+  const { data, error } = await query;
+  if (error) { console.error(error); return; }
+  renderList(data || []);
+}
+
+function renderList(list) {
+  const el = document.getElementById('factoryList');
+  if (!list.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">🏭</div><div>工場データがありません</div><div class="empty-sub">📷ボタンから撮影して登録できます</div></div>`;
+    return;
+  }
+  el.innerHTML = list.map(f => {
+    const bc = f.status === '取引中' ? 'badge-active' : (f.status === '休止' || f.status === '終了') ? 'badge-paused' : 'badge-candidate';
+    const cats = (f.product_categories || []).slice(0, 3).map(c => `<span class="tag">${c}</span>`).join('');
+    const certs = (f.certifications || []).slice(0, 2).map(c => `<span class="tag tag-blue">${c}</span>`).join('');
+    return `<div class="factory-card" onclick="openDetail('${f.id}')">
+      <div class="card-row1">
+        <div class="card-name">${esc(f.name)}</div>
+        <span class="badge ${bc}">${f.status || '候補'}</span>
+      </div>
+      ${f.address ? `<div class="card-sub">📍 ${esc(f.address)}</div>` : ''}
+      ${f.contact ? `<div class="card-sub">👤 ${esc(f.contact)}</div>` : ''}
+      ${f.phone ? `<div class="card-sub">📞 ${esc(f.phone)}</div>` : ''}
+      <div class="tag-row">${cats}${certs}</div>
+    </div>`;
+  }).join('');
+}
+
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadFactories(document.getElementById('searchInput').value), 350);
+}
+
+async function loadFactoriesForSelect() {
+  const { data } = await sb.from('factories').select('id,name').order('name');
+  const sel = document.getElementById('fFactorySelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="new">＋ 新規工場として登録</option>';
+  (data || []).forEach(f => {
+    const o = document.createElement('option');
+    o.value = f.id; o.textContent = f.name;
+    sel.appendChild(o);
+  });
+  if (prev) sel.value = prev;
+}
+
+// ---------- DETAIL ----------
+
+async function openDetail(id) {
+  currentFactoryId = id;
+  showLoading('読み込み中...');
+  const [{ data: f }, { data: docs }] = await Promise.all([
+    sb.from('factories').select('*').eq('id', id).single(),
+    sb.from('factory_documents').select('*').eq('factory_id', id).order('uploaded_at', { ascending: false })
+  ]);
+  hideLoading();
+  if (!f) { alert('工場データが見つかりません'); return; }
+
+  const rows = [
+    ['住所', f.address], ['電話', f.phone], ['メール', f.email],
+    ['担当者', f.contact], ['最小ロット', f.min_lot], ['リードタイム', f.lead_time]
+  ].filter(r => r[1]).map(([l, v]) =>
+    `<div class="info-row"><div class="info-label">${l}</div><div class="info-value">${esc(v)}</div></div>`
+  ).join('');
+
+  const cats  = (f.product_categories || []).map(c => `<span class="tag">${esc(c)}</span>`).join('');
+  const certs = (f.certifications || []).map(c => `<span class="tag tag-blue">${esc(c)}</span>`).join('');
+  const tags  = (cats || certs) ? `<div class="tag-row" style="padding:10px 0 4px">${cats}${certs}</div>` : '';
+
+  const docsHtml = (docs && docs.length)
+    ? `<div class="section-title">添付資料（${docs.length}件）</div>
+       <div class="doc-grid">${docs.map(d =>
+         `<div class="doc-card" onclick="viewDoc('${d.id}','${d.image_url || ''}','${esc(d.document_type)}')">
+           ${d.image_url
+             ? `<img class="doc-thumb" data-path="${d.image_url}" src="" alt="">`
+             : `<div class="doc-placeholder">📄</div>`}
+           <div class="doc-caption">${esc(d.document_type)} · ${fmtDate(d.uploaded_at)}</div>
+         </div>`
+       ).join('')}</div>`
+    : `<div class="section-title">添付資料</div><div class="empty" style="padding:20px 0"><div>まだ資料がありません</div><div class="empty-sub">📷ボタンから追加できます</div></div>`;
+
+  const bc = f.status === '取引中' ? 'badge-active' : (f.status === '休止' || f.status === '終了') ? 'badge-paused' : 'badge-candidate';
+
+  document.getElementById('detailBody').innerHTML = `
+    <div class="detail-header">
+      <div class="detail-name">${esc(f.name)}</div>
+      <span class="badge ${bc}">${f.status || '候補'}</span>
+    </div>
+    <div class="info-card">
+      ${rows}
+      ${tags}
+      ${f.notes ? `<div class="info-row"><div class="info-label">備考</div><div class="info-value" style="white-space:pre-wrap">${esc(f.notes)}</div></div>` : ''}
+    </div>
+    <div class="info-card">${docsHtml}</div>
+  `;
+
+  showScreen('screenDetail');
+  if (docs && docs.length) loadDocThumbs(docs);
+}
+
+async function loadDocThumbs(docs) {
+  for (const d of docs) {
+    if (!d.image_url) continue;
+    const { data } = await sb.storage.from('factory-images').createSignedUrl(d.image_url, 3600);
+    if (data?.signedUrl) {
+      document.querySelectorAll(`img[data-path="${d.image_url}"]`).forEach(img => img.src = data.signedUrl);
+    }
+  }
+}
+
+async function viewDoc(docId, path, type) {
+  if (!path) return;
+  showLoading('読み込み中...');
+  const { data } = await sb.storage.from('factory-images').createSignedUrl(path, 3600);
+  hideLoading();
+  if (!data?.signedUrl) { alert('画像を取得できませんでした'); return; }
+  document.getElementById('imgModalTitle').textContent = type;
+  document.getElementById('imgModalSrc').src = data.signedUrl;
+  document.getElementById('imgModal').classList.remove('hidden');
+}
+
+function closeImgModal() { document.getElementById('imgModal').classList.add('hidden'); }
+
+// ---------- EDIT MODAL ----------
+
+async function openEditModal() {
+  if (!currentFactoryId) return;
+  showLoading('読み込み中...');
+  const { data: f } = await sb.from('factories').select('*').eq('id', currentFactoryId).single();
+  hideLoading();
+  if (!f) return;
+  document.getElementById('editId').value = f.id;
+  document.getElementById('eName').value = f.name || '';
+  document.getElementById('eAddress').value = f.address || '';
+  document.getElementById('ePhone').value = f.phone || '';
+  document.getElementById('eEmail').value = f.email || '';
+  document.getElementById('eContact').value = f.contact || '';
+  document.getElementById('eCategories').value = (f.product_categories || []).join(', ');
+  document.getElementById('eMinLot').value = f.min_lot || '';
+  document.getElementById('eLeadTime').value = f.lead_time || '';
+  document.getElementById('eCertifications').value = (f.certifications || []).join(', ');
+  document.getElementById('eStatus').value = f.status || '候補';
+  document.getElementById('eNotes').value = f.notes || '';
+  document.getElementById('editModal').classList.remove('hidden');
+}
+
+function closeEditModal() { document.getElementById('editModal').classList.add('hidden'); }
+
+async function saveEditFactory() {
+  const id = document.getElementById('editId').value;
+  const name = document.getElementById('eName').value.trim();
+  if (!name) { alert('工場名は必須です'); return; }
+  const payload = {
+    name,
+    address: val('eAddress'), phone: val('ePhone'), email: val('eEmail'),
+    contact: val('eContact'),
+    product_categories: parseTags(document.getElementById('eCategories').value),
+    min_lot: val('eMinLot'), lead_time: val('eLeadTime'),
+    certifications: parseTags(document.getElementById('eCertifications').value),
+    status: document.getElementById('eStatus').value,
+    notes: val('eNotes'),
+    updated_at: new Date().toISOString()
+  };
+  showLoading('保存中...');
+  const { error } = await sb.from('factories').update(payload).eq('id', id);
+  hideLoading();
+  if (error) { alert('保存に失敗しました: ' + error.message); return; }
+  closeEditModal();
+  await openDetail(id);
+  await loadFactories(document.getElementById('searchInput').value);
+}
+
+// ---------- UPLOAD ----------
+
+function startUpload(factoryId) {
+  uploadForFactoryId = factoryId;
+  selectedFile = null;
+  extractedData = null;
+  // Reset
+  document.getElementById('cameraPreview').classList.add('hidden');
+  document.getElementById('cameraPlaceholder').style.display = 'flex';
+  document.getElementById('btnExtract').classList.add('hidden');
+  document.getElementById('fileInput').value = '';
+  document.getElementById('phaseCamera').classList.remove('hidden');
+  document.getElementById('phaseReview').classList.add('hidden');
+  // Clear form
+  ['fName','fAddress','fPhone','fEmail','fContact','fCategories','fMinLot','fLeadTime','fCertifications','fNotes'].forEach(id => document.getElementById(id).value = '');
+  // Factory select
+  if (factoryId) {
+    document.getElementById('fFactorySelect').value = factoryId;
+    document.getElementById('factorySelectWrap').style.display = 'none';
+  } else {
+    document.getElementById('factorySelectWrap').style.display = 'block';
+  }
+  setStep(1);
+  showScreen('screenUpload');
+}
+
+function cancelUpload() {
+  if (currentFactoryId) showScreen('screenDetail');
+  else showScreen('screenList');
+}
+
+function onFileSelected(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = document.getElementById('cameraPreview');
+    img.src = ev.target.result;
+    img.classList.remove('hidden');
+    document.getElementById('cameraPlaceholder').style.display = 'none';
+    document.getElementById('btnExtract').classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+}
+
+async function runExtraction() {
+  const apiKey = localStorage.getItem('anthropic_api_key');
+  if (!apiKey) {
+    if (confirm('Anthropic APIキーが未設定です。設定画面を開きますか？')) goSettings();
+    return;
+  }
+  showLoading('AIが資料を読み取り中...\nしばらくお待ちください');
+  try {
+    const b64 = await toBase64(selectedFile);
+    const mt = ['image/jpeg','image/png','image/webp','image/gif'].includes(selectedFile.type) ? selectedFile.type : 'image/jpeg';
+    const result = await claudeExtract(b64, mt, apiKey);
+    extractedData = result;
+    document.getElementById('fName').value = result.factory_name || '';
+    document.getElementById('fAddress').value = result.address || '';
+    document.getElementById('fPhone').value = result.phone || '';
+    document.getElementById('fEmail').value = result.email || '';
+    document.getElementById('fContact').value = result.contact_person || '';
+    document.getElementById('fCategories').value = (result.product_categories || []).join(', ');
+    document.getElementById('fMinLot').value = result.min_lot || '';
+    document.getElementById('fLeadTime').value = result.lead_time || '';
+    document.getElementById('fCertifications').value = (result.certifications || []).join(', ');
+    document.getElementById('fNotes').value = result.notes || '';
+    hideLoading();
+    goReviewPhase();
+  } catch (e) {
+    hideLoading();
+    console.error(e);
+    alert('AI読み取りに失敗しました。手動で入力してください。\n\nエラー: ' + e.message);
+    goReviewPhase();
+  }
+}
+
+function skipExtraction() { goReviewPhase(); }
+
+function goReviewPhase() {
+  document.getElementById('phaseCamera').classList.add('hidden');
+  document.getElementById('phaseReview').classList.remove('hidden');
+  setStep(2);
+  window.scrollTo(0, 0);
+}
+
+async function saveDocument() {
+  const name = document.getElementById('fName').value.trim();
+  if (!name) { alert('工場名を入力してください'); return; }
+
+  const selVal = uploadForFactoryId || document.getElementById('fFactorySelect').value;
+  setStep(3);
+  showLoading('保存中...');
+
+  try {
+    // 1. Create or use factory
+    let factoryId;
+    const fPayload = {
+      name,
+      address: val('fAddress'), phone: val('fPhone'), email: val('fEmail'),
+      contact: val('fContact'),
+      product_categories: parseTags(document.getElementById('fCategories').value),
+      min_lot: val('fMinLot'), lead_time: val('fLeadTime'),
+      certifications: parseTags(document.getElementById('fCertifications').value),
+      notes: val('fNotes'),
+      updated_at: new Date().toISOString()
+    };
+
+    if (selVal === 'new') {
+      fPayload.id = 'FAC-' + Date.now();
+      fPayload.status = '候補';
+      const { data, error } = await sb.from('factories').insert(fPayload).select().single();
+      if (error) throw error;
+      factoryId = data.id;
+    } else {
+      factoryId = selVal;
+      await sb.from('factories').update(fPayload).eq('id', factoryId);
+    }
+
+    // 2. Upload image
+    let storagePath = null;
+    if (selectedFile) {
+      const ext = selectedFile.name.split('.').pop().toLowerCase() || 'jpg';
+      storagePath = `${factoryId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await sb.storage.from('factory-images').upload(storagePath, selectedFile, { contentType: selectedFile.type });
+      if (upErr) throw upErr;
+    }
+
+    // 3. Save document record
+    const { error: docErr } = await sb.from('factory_documents').insert({
+      factory_id: factoryId,
+      document_type: document.getElementById('fDocType').value,
+      image_url: storagePath,
+      extracted_text: extractedData ? JSON.stringify(extractedData, null, 2) : null,
+      extracted_data: extractedData || null,
+      notes: val('fNotes')
+    });
+    if (docErr) throw docErr;
+
+    hideLoading();
+    alert('保存しました！');
+    currentFactoryId = factoryId;
+    await Promise.all([loadFactories(''), loadFactoriesForSelect()]);
+    await openDetail(factoryId);
+
+  } catch (e) {
+    hideLoading();
+    console.error(e);
+    alert('保存に失敗しました:\n' + e.message);
+  }
+}
+
+// ---------- CLAUDE API ----------
+
+async function claudeExtract(b64, mediaType, apiKey) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+          { type: 'text', text: `この工場・メーカーの資料から情報を抽出してください。
+JSONのみ返答してください（説明・コードブロック不要）:
+{"factory_name":"工場名または会社名","address":"住所","phone":"電話番号","email":"メール","contact_person":"担当者名","product_categories":["品目1"],"min_lot":"最小ロット","lead_time":"リードタイム","certifications":["認証1"],"notes":"その他の重要情報"}
+読み取れない項目はnullにしてください。` }
+        ]
+      }]
+    })
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.error?.message || `HTTP ${res.status}`);
+  }
+  const d = await res.json();
+  const text = d.content[0].text.trim();
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('JSONを抽出できませんでした');
+  return JSON.parse(m[0]);
+}
+
+// ---------- SETTINGS ----------
+
+function goSettings() {
+  const apiKey = localStorage.getItem('anthropic_api_key');
+  if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
+  showScreen('screenSettings');
+}
+
+function saveApiKey() {
+  const k = document.getElementById('apiKeyInput').value.trim();
+  if (!k) { alert('APIキーを入力してください'); return; }
+  localStorage.setItem('anthropic_api_key', k);
+  const fb = document.getElementById('apiKeyFeedback');
+  fb.textContent = '✓ 保存しました';
+  setTimeout(() => fb.textContent = '', 2500);
+}
+
+// ---------- HELPERS ----------
+
+function showScreen(id) {
+  ['screenLogin','screenList','screenDetail','screenUpload','screenSettings'].forEach(s =>
+    document.getElementById(s).classList.add('hidden')
+  );
+  document.getElementById(id).classList.remove('hidden');
+  window.scrollTo(0, 0);
+}
+
+function showLoading(t) {
+  document.getElementById('loadingText').textContent = t || '処理中...';
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+}
+function hideLoading() { document.getElementById('loadingOverlay').classList.add('hidden'); }
+
+function setStep(n) {
+  ['stepA','stepB','stepC'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.className = 'step';
+    if (i + 1 < n) el.classList.add('done');
+    else if (i + 1 === n) el.classList.add('active');
+  });
+}
+
+function parseTags(s) { return s ? s.split(',').map(x => x.trim()).filter(Boolean) : []; }
+function val(id) { const v = document.getElementById(id).value.trim(); return v || null; }
+function esc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtDate(iso) { return iso ? new Date(iso).toLocaleDateString('ja-JP', { year:'numeric', month:'2-digit', day:'2-digit' }) : ''; }
+
+async function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result.split(',')[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+// ---------- BOOT ----------
+(async () => {
+  const apiKey = localStorage.getItem('anthropic_api_key');
+  if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) await initApp();
+  else showScreen('screenLogin');
+})();
+</script>
+</body>
+</html>
